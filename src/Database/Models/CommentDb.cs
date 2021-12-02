@@ -15,5 +15,7 @@ namespace Miniblog.Core.Database.Models
         public bool IsAdmin { get; set; }
 
         public DateTime PubDate { get; set; }
+
+        public virtual PostDb Post { get; set; }
     }
 }

@@ -32,15 +32,13 @@ namespace Miniblog.Core.Services
                 throw new ArgumentNullException(nameof(post));
             }
 
-            if (!Guid.TryParse(post.ID, out var postId))
-            {
-                throw new ArgumentException("Wrong format of post id");
-            }
+            _ = Guid.TryParse(post.ID, out var postId)
 
             var postEntity = await this.blogContext.Posts.FindAsync(postId);
             if (postEntity != null)
             {
                 this.blogContext.Remove(postEntity);
+                await this.blogContext.SaveChangesAsync();
             }
         }
 
@@ -75,6 +73,7 @@ namespace Miniblog.Core.Services
             _ = Guid.TryParse(id, out var postId);
             var post = this.blogContext
                 .Posts
+                .Include(nameof(PostDb.Comments))
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
                 .FirstOrDefault(p =>
@@ -91,6 +90,7 @@ namespace Miniblog.Core.Services
             var decodedSlug = System.Net.WebUtility.UrlDecode(slug).ToLower();
             var post = this.blogContext
                 .Posts
+                .Include(nameof(PostDb.Comments))
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
                 .FirstOrDefault(p =>
@@ -107,6 +107,7 @@ namespace Miniblog.Core.Services
 
             return this.blogContext
                 .Posts
+                .Include(nameof(PostDb.Comments))
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
                 .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
@@ -122,6 +123,7 @@ namespace Miniblog.Core.Services
 
             return this.blogContext
                 .Posts
+                .Include(nameof(PostDb.Comments))
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
                 .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
@@ -132,9 +134,45 @@ namespace Miniblog.Core.Services
                 .ToAsyncEnumerable();
         }
 
-        public IAsyncEnumerable<Post> GetPostsByCategory(string category) => throw new NotImplementedException();
+        public IAsyncEnumerable<Post> GetPostsByCategory(string category)
+        {
+            var isAdmin = this.IsAdmin();
 
-        public IAsyncEnumerable<Post> GetPostsByTag(string tag) => throw new NotImplementedException();
+            var posts = this.blogContext
+                .Categories
+                .Include(nameof(CategoryDb.Post))
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Comments)}")
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Categories)}")
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Tags)}")
+                .Where(c =>
+                c.Name.ToLower().Equals(category.ToLower())
+                && ((c.Post.PubDate < DateTime.UtcNow && c.Post.IsPublished)
+                    || isAdmin))
+                .Select(c => MapEntityToPost(c.Post));
+
+
+            return posts.ToAsyncEnumerable();
+        }
+
+        public IAsyncEnumerable<Post> GetPostsByTag(string tag)
+        {
+            var isAdmin = this.IsAdmin();
+
+            var posts = this.blogContext
+                .Tags
+                .Include(nameof(TagDb.Post))
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Comments)}")
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Categories)}")
+                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Tags)}")
+                .Where(t =>
+                t.Name.ToLower().Equals(tag.ToLower())
+                && ((t.Post.PubDate < DateTime.UtcNow && t.Post.IsPublished)
+                    || isAdmin))
+                .Select(t => MapEntityToPost(t.Post));
+
+
+            return posts.ToAsyncEnumerable();
+        }
 
         public Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null) => throw new NotImplementedException();
 
@@ -150,9 +188,10 @@ namespace Miniblog.Core.Services
 
             var entity = this.blogContext
                 .Posts
+                .Include(nameof(PostDb.Comments))
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
-                .FirstOrDefault(p=>p.ID == postId) ?? new PostDb();
+                .FirstOrDefault(p => p.ID == postId) ?? new PostDb();
 
             post.LastModified = DateTime.UtcNow;
 
@@ -181,21 +220,38 @@ namespace Miniblog.Core.Services
             entity.Slug = post.Slug;
             entity.Title = post.Title;
 
+            entity.Comments = entity.Comments ?? new List<CommentDb>();
             entity.Tags = entity.Tags ?? new List<TagDb>();
             entity.Categories = entity.Categories ?? new List<CategoryDb>();
 
-            entity.Tags = entity.Tags.IntersectBy(post.Tags.ToList(), x => x.Name).ToList();
-
-            foreach (var cat in post.Categories)
+            var commentsPosted = post.Comments.Select(t =>
             {
-                if(entity.Categories.Any(c=>c.Name.ToLower() == cat.ToLower()))
+                _ = Guid.TryParse(t.ID, out var commentId);
+                return new CommentDb
                 {
-                    entity.Categories.Add(new CategoryDb
-                    {
-                        Name = cat
-                    });
-                }
-            }
+                    ID = commentId,
+                    Author = t.Author,
+                    Email = t.Email,
+                    Content = t.Content,
+                    IsAdmin = t.IsAdmin,
+                    PubDate = t.PubDate
+                };
+            }).ToList();
+
+            var newComments = commentsPosted.ExceptBy(entity.Comments.Select(t => t.ID), t => t.ID).ToList();
+            newComments.ForEach(c => c.ID = Guid.Empty);
+            newComments.AddRange(entity.Comments.IntersectBy(post.Comments.Select(c=>c.ID.ToLower()).ToList(), t => t.ID.ToString().ToLower()));
+            entity.Comments = newComments;
+
+            var tagsPosted = post.Tags.Select(t => new TagDb { Name = t }).ToList();
+            var newTags = tagsPosted.ExceptBy(entity.Tags.Select(t => t.Name), t => t.Name).ToList();
+            newTags.AddRange(entity.Tags.IntersectBy(post.Tags.ToList(), t => t.Name));
+            entity.Tags = newTags;
+
+            var catPosted = post.Categories.Select(c => new CategoryDb { Name = c }).ToList();
+            var newCat = catPosted.ExceptBy(entity.Categories.Select(c => c.Name), c => c.Name).ToList();
+            newCat.AddRange(entity.Categories.IntersectBy(post.Categories.ToList(), c => c.Name));
+            entity.Categories = newCat;
         }
 
         private static Post MapEntityToPost(PostDb post)
@@ -216,6 +272,19 @@ namespace Miniblog.Core.Services
                 Slug = post.Slug,
                 Title = post.Title
             };
+
+            foreach (var comment in post.Comments)
+            {
+                postDto.Comments.Add(new Comment
+                {
+                    ID = comment.ID.ToString(),
+                    Author = comment.Author,
+                    Content = comment.Content,
+                    Email = comment.Email,
+                    IsAdmin = comment.IsAdmin,
+                    PubDate= comment.PubDate
+                });
+            }
 
             foreach (var tag in post.Tags)
             {

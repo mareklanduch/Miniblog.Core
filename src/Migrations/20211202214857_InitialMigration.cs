@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Miniblog.Core.Migrations
 {
-    public partial class AddAllModels : Migration
+    public partial class InitialMigration : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -34,7 +34,7 @@ namespace Miniblog.Core.Migrations
                     ID = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    PostID = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                    PostID = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -43,7 +43,8 @@ namespace Miniblog.Core.Migrations
                         name: "FK_Categories_Posts_PostID",
                         column: x => x.PostID,
                         principalTable: "Posts",
-                        principalColumn: "ID");
+                        principalColumn: "ID",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -56,16 +57,17 @@ namespace Miniblog.Core.Migrations
                     Email = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     IsAdmin = table.Column<bool>(type: "bit", nullable: false),
                     PubDate = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    PostDbID = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                    PostID = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Comments", x => x.ID);
                     table.ForeignKey(
-                        name: "FK_Comments_Posts_PostDbID",
-                        column: x => x.PostDbID,
+                        name: "FK_Comments_Posts_PostID",
+                        column: x => x.PostID,
                         principalTable: "Posts",
-                        principalColumn: "ID");
+                        principalColumn: "ID",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -75,7 +77,7 @@ namespace Miniblog.Core.Migrations
                     ID = table.Column<int>(type: "int", nullable: false)
                         .Annotation("SqlServer:Identity", "1, 1"),
                     Name = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    PostID = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                    PostID = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -84,7 +86,8 @@ namespace Miniblog.Core.Migrations
                         name: "FK_Tags_Posts_PostID",
                         column: x => x.PostID,
                         principalTable: "Posts",
-                        principalColumn: "ID");
+                        principalColumn: "ID",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(
@@ -93,9 +96,9 @@ namespace Miniblog.Core.Migrations
                 column: "PostID");
 
             migrationBuilder.CreateIndex(
-                name: "IX_Comments_PostDbID",
+                name: "IX_Comments_PostID",
                 table: "Comments",
-                column: "PostDbID");
+                column: "PostID");
 
             migrationBuilder.CreateIndex(
                 name: "IX_Tags_PostID",

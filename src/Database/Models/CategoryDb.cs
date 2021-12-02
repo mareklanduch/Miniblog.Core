@@ -10,7 +10,7 @@ namespace Miniblog.Core.Database.Models
         public int ID { get; set; }
         public string? Name { get; set; }
 
-        public virtual PostDb? Post { get; set; }
+        public virtual PostDb Post { get; set; }
 
     }
 }

@@ -21,10 +21,10 @@ namespace Miniblog.Core.Database.Models
 
         public string? Title { get; set; }
 
-        public ICollection<CommentDb>? Comments { get; set; }
+        public virtual ICollection<CommentDb> Comments { get; set; }
 
-        public virtual ICollection<CategoryDb>? Categories { get; set; }
+        public virtual ICollection<CategoryDb> Categories { get; set; }
 
-        public virtual ICollection<TagDb>? Tags { get; set; }
+        public virtual ICollection<TagDb> Tags { get; set; }
     }
 }

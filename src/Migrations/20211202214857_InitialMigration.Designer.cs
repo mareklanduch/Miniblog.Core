@@ -12,8 +12,8 @@ using Miniblog.Core.Database;
 namespace Miniblog.Core.Migrations
 {
     [DbContext(typeof(BlogContext))]
-    [Migration("20211202122839_AddAllModels")]
-    partial class AddAllModels
+    [Migration("20211202214857_InitialMigration")]
+    partial class InitialMigration
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
@@ -35,7 +35,7 @@ namespace Miniblog.Core.Migrations
                     b.Property<string>("Name")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("PostID")
+                    b.Property<Guid>("PostID")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("ID");
@@ -63,7 +63,7 @@ namespace Miniblog.Core.Migrations
                     b.Property<bool>("IsAdmin")
                         .HasColumnType("bit");
 
-                    b.Property<Guid?>("PostDbID")
+                    b.Property<Guid>("PostID")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("PubDate")
@@ -71,7 +71,7 @@ namespace Miniblog.Core.Migrations
 
                     b.HasKey("ID");
 
-                    b.HasIndex("PostDbID");
+                    b.HasIndex("PostID");
 
                     b.ToTable("Comments");
                 });
@@ -119,7 +119,7 @@ namespace Miniblog.Core.Migrations
                     b.Property<string>("Name")
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<Guid?>("PostID")
+                    b.Property<Guid>("PostID")
                         .HasColumnType("uniqueidentifier");
 
                     b.HasKey("ID");
@@ -133,23 +133,31 @@ namespace Miniblog.Core.Migrations
                 {
                     b.HasOne("Miniblog.Core.Database.Models.PostDb", "Post")
                         .WithMany("Categories")
-                        .HasForeignKey("PostID");
+                        .HasForeignKey("PostID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Post");
                 });
 
             modelBuilder.Entity("Miniblog.Core.Database.Models.CommentDb", b =>
                 {
-                    b.HasOne("Miniblog.Core.Database.Models.PostDb", null)
+                    b.HasOne("Miniblog.Core.Database.Models.PostDb", "Post")
                         .WithMany("Comments")
-                        .HasForeignKey("PostDbID");
+                        .HasForeignKey("PostID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Post");
                 });
 
             modelBuilder.Entity("Miniblog.Core.Database.Models.TagDb", b =>
                 {
                     b.HasOne("Miniblog.Core.Database.Models.PostDb", "Post")
                         .WithMany("Tags")
-                        .HasForeignKey("PostID");
+                        .HasForeignKey("PostID")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Post");
                 });
