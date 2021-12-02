@@ -32,7 +32,7 @@ namespace Miniblog.Core.Services
                 throw new ArgumentNullException(nameof(post));
             }
 
-            _ = Guid.TryParse(post.ID, out var postId)
+            _ = Guid.TryParse(post.ID, out var postId);
 
             var postEntity = await this.blogContext.Posts.FindAsync(postId);
             if (postEntity != null)
