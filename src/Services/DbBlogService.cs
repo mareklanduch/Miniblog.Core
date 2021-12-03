@@ -128,6 +128,7 @@ namespace Miniblog.Core.Services
                 .Include(nameof(PostDb.Tags))
                 .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
                             || isAdmin)
+                .OrderByDescending(p => p.PubDate)
                 .Skip(skip)
                 .Take(count)
                 .Select(p => MapEntityToPost(p))
@@ -148,7 +149,8 @@ namespace Miniblog.Core.Services
                 c.Name.ToLower().Equals(category.ToLower())
                 && ((c.Post.PubDate < DateTime.UtcNow && c.Post.IsPublished)
                     || isAdmin))
-                .Select(c => MapEntityToPost(c.Post));
+                .Select(c => MapEntityToPost(c.Post))
+                .OrderByDescending(p => p.PubDate);
 
 
             return posts.ToAsyncEnumerable();
@@ -168,7 +170,8 @@ namespace Miniblog.Core.Services
                 t.Name.ToLower().Equals(tag.ToLower())
                 && ((t.Post.PubDate < DateTime.UtcNow && t.Post.IsPublished)
                     || isAdmin))
-                .Select(t => MapEntityToPost(t.Post));
+                .Select(t => MapEntityToPost(t.Post)).ToList()
+                .OrderByDescending(p => p.PubDate);
 
 
             return posts.ToAsyncEnumerable();
