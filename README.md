@@ -1,6 +1,9 @@
-# Blog engine for ASP.NET Core 3.1
+# Blog engine for ASP.NET Core 6
 
-A full-featured yet simple blog engine built on ASP.NET Core 3.1.
+:warning: **This is forked repository of madskristensen/Miniblog.Core I've only added entityframework support so it can work with MSSQL database. There are no changes regarding UI or any other functionalities. I'll keep updating this repository along with new versions of madskristensen/Miniblog.Core** :warning:
+
+
+A full-featured yet simple blog engine built on ASP.NET Core 6
 
 Please be aware that [Mads is taking pull requests, but is not actively working on it](https://github.com/madskristensen/Miniblog.Core/issues/159#issuecomment-765629584).
 
