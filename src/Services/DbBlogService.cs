@@ -9,7 +9,10 @@ namespace Miniblog.Core.Services
 
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.IO;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
 
     public class DbBlogService : IBlogService
@@ -177,7 +180,30 @@ namespace Miniblog.Core.Services
             return posts.ToAsyncEnumerable();
         }
 
-        public Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null) => throw new NotImplementedException();
+        public async Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null)
+        {
+            if (bytes is null)
+            {
+                throw new ArgumentNullException(nameof(bytes));
+            }
+
+            suffix ??= DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture);
+
+            var ext = Path.GetExtension(fileName);
+            var name = Path.GetFileNameWithoutExtension(fileName);
+
+            var fileNameWithSuffix = $"{name}_{suffix}{ext}";
+
+            await this.blogContext.Files.AddAsync(new FileDb
+            {
+                FileName = fileNameWithSuffix,
+                Content = bytes
+            });
+
+            await this.blogContext.SaveChangesAsync();
+
+            return $"/file/{fileNameWithSuffix}";
+        }
 
         public async Task SavePost(Post post)
         {
@@ -211,7 +237,7 @@ namespace Miniblog.Core.Services
             await this.blogContext.SaveChangesAsync();
         }
 
-        protected bool IsAdmin() => this.contextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true;
+        private bool IsAdmin() => this.contextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true;
 
         private void BindPostToEntity(Post post, PostDb entity)
         {

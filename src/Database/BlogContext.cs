@@ -10,6 +10,7 @@ namespace Miniblog.Core.Database
         public DbSet<CategoryDb> Categories { get; set; }
         public DbSet<TagDb> Tags { get; set; }
         public DbSet<CommentDb> Comments { get; set; }
+        public DbSet<FileDb> Files{ get; set; }
 
         public BlogContext(DbContextOptions<BlogContext> options)
             : base(options)
