@@ -4,4 +4,3 @@
 
 Things changed in comparison to original repository:
  - EntityFramework support
- - Simplified WYSIWYG which supports markdown syntax
