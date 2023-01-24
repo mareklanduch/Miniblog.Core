@@ -486,3 +486,4 @@ ASALocalRun/
 # Secrets
 .manifest.json
 appsettings.production.json
+/src/.config
