@@ -152,9 +152,8 @@ namespace Miniblog.Core.Services
                 c.Name.ToLower().Equals(category.ToLower())
                 && ((c.Post.PubDate < DateTime.UtcNow && c.Post.IsPublished)
                     || isAdmin))
-                .Select(c => MapEntityToPost(c.Post))
+                .Select(c => MapEntityToPost(c.Post)).ToList()
                 .OrderByDescending(p => p.PubDate);
-
 
             return posts.ToAsyncEnumerable();
         }
@@ -166,9 +165,9 @@ namespace Miniblog.Core.Services
             var posts = this.blogContext
                 .Tags
                 .Include(nameof(TagDb.Post))
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Comments)}")
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Categories)}")
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Tags)}")
+                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Comments)}")
+                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Categories)}")
+                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Tags)}")
                 .Where(t =>
                 t.Name.ToLower().Equals(tag.ToLower())
                 && ((t.Post.PubDate < DateTime.UtcNow && t.Post.IsPublished)
