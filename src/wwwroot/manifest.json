@@ -1,7 +1,7 @@
 {
-  "name": "Miniblog.Core",
-  "short_name": "Miniblog.Core",
-  "description": "A short description of the blog.",
+  "name": "Homepage of Marek Łańduch",
+  "short_name": "Thoughts",
+  "description": "Hi, I am Mark! This is the website where I would like to share my thoughts.",
   "icons": [
     {
       "src": "/img/icon192x192.png",
