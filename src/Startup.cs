@@ -5,6 +5,7 @@ namespace Miniblog.Core
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.AspNetCore.Http;
     using Microsoft.EntityFrameworkCore;
+    using Microsoft.AspNetCore.Rewrite;
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -71,6 +72,11 @@ namespace Miniblog.Core
             if (this.Configuration.GetValue<bool>("forcessl"))
             {
                 app.UseHttpsRedirection();
+            }
+
+            if (this.Configuration.GetValue<bool>("forceWwwPrefix"))
+            {
+                app.UseRewriter(new RewriteOptions().AddRedirectToWwwPermanent());
             }
 
             app.UseMetaWeblog("/metaweblog");
