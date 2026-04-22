@@ -13,8 +13,8 @@ namespace Miniblog.Core.Database.Models
         public DateTime PubDate { get; set; }
         public string? Slug { get; set; }
         public string? Title { get; set; }
-        public virtual ICollection<CommentDb> Comments { get; set; }
-        public virtual ICollection<CategoryDb> Categories { get; set; }
-        public virtual ICollection<TagDb> Tags { get; set; }
+        public virtual ICollection<CommentDb> Comments { get; set; } = [];
+        public virtual ICollection<CategoryDb> Categories { get; set; } = [];
+        public virtual ICollection<TagDb> Tags { get; set; } = [];
     }
 }
