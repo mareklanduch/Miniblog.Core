@@ -52,7 +52,7 @@ namespace Miniblog.Core.Services
             return this.blogContext
                 .Categories
                 .Where(p => p.Post.IsPublished || isAdmin)
-                .Select(cat => cat.Name.ToLowerInvariant())
+                .Select(cat => cat.Name!.ToLowerInvariant())
                 .Distinct()
                 .ToAsyncEnumerable();
         }
@@ -64,7 +64,7 @@ namespace Miniblog.Core.Services
             return this.blogContext
                 .Tags
                 .Where(p => p.Post.IsPublished || isAdmin)
-                .Select(tag => tag.Name.ToLowerInvariant())
+                .Select(tag => tag.Name!.ToLowerInvariant())
                 .Distinct()
                 .ToAsyncEnumerable();
         }
@@ -84,7 +84,7 @@ namespace Miniblog.Core.Services
                 && ((p.PubDate < DateTime.UtcNow && p.IsPublished)
                     || isAdmin));
 
-            return Task.FromResult(MapEntityToPost(post));
+            return Task.FromResult<Post?>(MapEntityToPost(post));
         }
 
         public Task<Post?> GetPostBySlug(string slug)
@@ -97,11 +97,11 @@ namespace Miniblog.Core.Services
                 .Include(nameof(PostDb.Categories))
                 .Include(nameof(PostDb.Tags))
                 .FirstOrDefault(p =>
-                p.Slug.ToLower().Equals(decodedSlug)
+                p.Slug!.ToLower().Equals(decodedSlug)
                 && ((p.PubDate < DateTime.UtcNow && p.IsPublished)
                     || isAdmin));
 
-            return Task.FromResult(MapEntityToPost(post));
+            return Task.FromResult<Post?>(MapEntityToPost(post));
         }
 
         public IAsyncEnumerable<Post> GetPosts()
@@ -115,7 +115,7 @@ namespace Miniblog.Core.Services
                 .Include(nameof(PostDb.Tags))
                 .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
                             || isAdmin)
-                .Select(p => MapEntityToPost(p))
+                .Select(p => MapEntityToPost(p)!)
                 .ToAsyncEnumerable()
                 .OrderByDescending(p => p.PubDate);
         }
@@ -134,7 +134,7 @@ namespace Miniblog.Core.Services
                 .OrderByDescending(p => p.PubDate)
                 .Skip(skip)
                 .Take(count)
-                .Select(p => MapEntityToPost(p))
+                .Select(p => MapEntityToPost(p)!)
                 .ToAsyncEnumerable();
         }
 
@@ -149,10 +149,10 @@ namespace Miniblog.Core.Services
                 .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Categories)}")
                 .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Tags)}")
                 .Where(c =>
-                c.Name.ToLower().Equals(category.ToLower())
+                c.Name!.ToLower().Equals(category.ToLower())
                 && ((c.Post.PubDate < DateTime.UtcNow && c.Post.IsPublished)
                     || isAdmin))
-                .Select(c => MapEntityToPost(c.Post)).ToList()
+                .Select(c => MapEntityToPost(c.Post)!).ToList()
                 .OrderByDescending(p => p.PubDate);
 
             return posts.ToAsyncEnumerable();
@@ -169,10 +169,10 @@ namespace Miniblog.Core.Services
                 .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Categories)}")
                 .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Tags)}")
                 .Where(t =>
-                t.Name.ToLower().Equals(tag.ToLower())
+                t.Name!.ToLower().Equals(tag.ToLower())
                 && ((t.Post.PubDate < DateTime.UtcNow && t.Post.IsPublished)
                     || isAdmin))
-                .Select(t => MapEntityToPost(t.Post)).ToList()
+                .Select(t => MapEntityToPost(t.Post)!).ToList()
                 .OrderByDescending(p => p.PubDate);
 
 
@@ -282,7 +282,7 @@ namespace Miniblog.Core.Services
             entity.Categories = newCat;
         }
 
-        private static Post MapEntityToPost(PostDb post)
+        private static Post? MapEntityToPost(PostDb? post)
         {
             if (post is null)
             {
@@ -292,13 +292,13 @@ namespace Miniblog.Core.Services
             var postDto = new Post
             {
                 ID = post.ID.ToString(),
-                Content = post.Content,
-                Excerpt = post.Excerpt,
+                Content = post.Content ?? string.Empty,
+                Excerpt = post.Excerpt ?? string.Empty,
                 IsPublished = post.IsPublished,
                 LastModified = post.LastModified,
                 PubDate = post.PubDate,
-                Slug = post.Slug,
-                Title = post.Title
+                Slug = post.Slug ?? string.Empty,
+                Title = post.Title ?? string.Empty
             };
 
             foreach (var comment in post.Comments)
@@ -306,9 +306,9 @@ namespace Miniblog.Core.Services
                 postDto.Comments.Add(new Comment
                 {
                     ID = comment.ID.ToString(),
-                    Author = comment.Author,
-                    Content = comment.Content,
-                    Email = comment.Email,
+                    Author = comment.Author ?? string.Empty,
+                    Content = comment.Content ?? string.Empty,
+                    Email = comment.Email ?? string.Empty,
                     IsAdmin = comment.IsAdmin,
                     PubDate= comment.PubDate
                 });
@@ -316,12 +316,12 @@ namespace Miniblog.Core.Services
 
             foreach (var tag in post.Tags)
             {
-                postDto.Tags.Add(tag.Name);
+                postDto.Tags.Add(tag.Name!);
             }
 
             foreach (var cat in post.Categories)
             {
-                postDto.Categories.Add(cat.Name);
+                postDto.Categories.Add(cat.Name!);
             }
 
             return postDto;
