@@ -1,398 +1,435 @@
-namespace Miniblog.Core.Services
+using System.Globalization;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
+using System.Xml.XPath;
+
+using Miniblog.Core.Models;
+
+namespace Miniblog.Core.Services;
+
+[method: SuppressMessage(
+    "Usage",
+    "SecurityIntelliSenseCS:MS Security rules violation",
+    Justification = "Path not derived from user input.")]
+public class FileBlogService(IWebHostEnvironment env, IHttpContextAccessor contextAccessor) : IBlogService
 {
-    using Microsoft.AspNetCore.Hosting;
-    using Microsoft.AspNetCore.Http;
+    private const string FILES = "files";
+    private const string POSTS = "Posts";
 
-    using Miniblog.Core.Models;
+    private readonly List<Post> _cache = [];
+    private readonly IWebHostEnvironment _env = env ?? throw new ArgumentNullException(nameof(env));
+    private bool _initialized = false;
 
-    using System;
-    using System.Collections.Generic;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Globalization;
-    using System.IO;
-    using System.Linq;
-    using System.Text.RegularExpressions;
-    using System.Threading;
-    using System.Threading.Tasks;
-    using System.Xml.Linq;
-    using System.Xml.XPath;
+    private string Folder => field ??= Path.Combine(_env.WebRootPath, POSTS);
 
-    public class FileBlogService : IBlogService
+    public async Task DeletePost(Post post)
     {
-        private const string FILES = "files";
+        ArgumentNullException.ThrowIfNull(post);
 
-        private const string POSTS = "Posts";
-
-        private readonly List<Post> cache = new List<Post>();
-
-        private readonly IHttpContextAccessor contextAccessor;
-
-        private readonly string folder;
-
-        [SuppressMessage(
-                "Usage",
-                "SecurityIntelliSenseCS:MS Security rules violation",
-                Justification = "Path not derived from user input.")]
-        public FileBlogService(IWebHostEnvironment env, IHttpContextAccessor contextAccessor)
+        if (!_initialized)
         {
-            if (env is null)
-            {
-                throw new ArgumentNullException(nameof(env));
-            }
-
-            this.folder = Path.Combine(env.WebRootPath, POSTS);
-            this.contextAccessor = contextAccessor;
-
-            this.Initialize();
+            await InitializeAsync();
         }
 
-        public Task DeletePost(Post post)
+        string filePath = GetFilePath(post);
+
+        if (File.Exists(filePath))
         {
-            if (post is null)
-            {
-                throw new ArgumentNullException(nameof(post));
-            }
-
-            var filePath = this.GetFilePath(post);
-
-            if (File.Exists(filePath))
-            {
-                File.Delete(filePath);
-            }
-
-            if (this.cache.Contains(post))
-            {
-                this.cache.Remove(post);
-            }
-
-            return Task.CompletedTask;
+            File.Delete(filePath);
         }
 
-        [SuppressMessage(
-            "Globalization",
-            "CA1308:Normalize strings to uppercase",
-            Justification = "Consumer preference.")]
-        public virtual IAsyncEnumerable<string> GetCategories()
+        if (_cache.Contains(post))
         {
-            var isAdmin = this.IsAdmin();
+            _ = _cache.Remove(post);
+        }
+    }
 
-            return this.cache
-                .Where(p => p.IsPublished || isAdmin)
-                .SelectMany(post => post.Categories)
-                .Select(cat => cat.ToLowerInvariant())
-                .Distinct()
-                .ToAsyncEnumerable();
+    [SuppressMessage(
+        "Globalization",
+        "CA1308:Normalize strings to uppercase",
+        Justification = "Consumer preference.")]
+    public virtual async IAsyncEnumerable<string> GetCategories()
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        [SuppressMessage(
-            "Globalization",
-            "CA1308:Normalize strings to uppercase",
-            Justification = "Consumer preference.")]
-        public virtual IAsyncEnumerable<string> GetTags()
-        {
-            var isAdmin = this.IsAdmin();
+        bool isAdmin = IsAdmin();
 
-            return this.cache
-                .Where(p => p.IsPublished || isAdmin)
-                .SelectMany(post => post.Tags)
-                .Select(tag => tag.ToLowerInvariant())
-                .Distinct()
-                .ToAsyncEnumerable();
+        foreach (string? category in _cache
+            .Where(p => p.IsPublished || isAdmin)
+            .SelectMany(post => post.Categories)
+            .Select(cat => cat.ToLowerInvariant())
+            .Distinct())
+        {
+            yield return category;
+        }
+    }
+
+    public virtual async Task<Post?> GetPostById(string id)
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        public virtual Task<Post?> GetPostById(string id)
-        {
-            var isAdmin = this.IsAdmin();
-            var post = this.cache.FirstOrDefault(p => p.ID.Equals(id, StringComparison.OrdinalIgnoreCase));
+        bool isAdmin = IsAdmin();
+        var post = _cache.FirstOrDefault(p => p.ID.Equals(id, StringComparison.OrdinalIgnoreCase));
 
-            return Task.FromResult(
-                post is null || post.PubDate > DateTime.UtcNow || (!post.IsPublished && !isAdmin)
-                ? null
-                : post);
+        return await Task.FromResult(
+            post is null || post.PubDate > DateTime.UtcNow || (!post.IsPublished && !isAdmin)
+            ? null
+            : post);
+    }
+
+    public virtual async Task<Post?> GetPostBySlug(string slug)
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        public virtual Task<Post?> GetPostBySlug(string slug)
-        {
-            var isAdmin = this.IsAdmin();
-            var post = this.cache.FirstOrDefault(p => p.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase));
+        bool isAdmin = IsAdmin();
+        var post = _cache.FirstOrDefault(p => p.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase));
 
-            return Task.FromResult(
-                post is null || post.PubDate > DateTime.UtcNow || (!post.IsPublished && !isAdmin)
-                ? null
-                : post);
+        return await Task.FromResult(
+            post is null || post.PubDate > DateTime.UtcNow || (!post.IsPublished && !isAdmin)
+            ? null
+            : post);
+    }
+
+    /// <remarks>Overload for getPosts method to retrieve all posts.</remarks>
+    public virtual async IAsyncEnumerable<Post> GetPosts()
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        /// <remarks>Overload for getPosts method to retrieve all posts.</remarks>
-        public virtual IAsyncEnumerable<Post> GetPosts()
+        bool isAdmin = IsAdmin();
+
+        foreach (var post in _cache.Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin)))
         {
-            var isAdmin = this.IsAdmin();
+            yield return post;
+        }
+    }
 
-            var posts = this.cache
-                .Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin))
-                .ToAsyncEnumerable();
-
-            return posts;
+    public virtual async IAsyncEnumerable<Post> GetPosts(int count, int skip = 0)
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        public virtual IAsyncEnumerable<Post> GetPosts(int count, int skip = 0)
+        bool isAdmin = IsAdmin();
+
+        foreach (var post in _cache
+            .Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin))
+            .Skip(skip)
+            .Take(count))
         {
-            var isAdmin = this.IsAdmin();
+            yield return post;
+        }
+    }
 
-            var posts = this.cache
-                .Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin))
-                .Skip(skip)
-                .Take(count)
-                .ToAsyncEnumerable();
-
-            return posts;
+    public virtual async IAsyncEnumerable<Post> GetPostsByCategory(string category)
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        public virtual IAsyncEnumerable<Post> GetPostsByCategory(string category)
+        bool isAdmin = IsAdmin();
+
+        foreach (var post in _cache
+            .Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin))
+            .Where(p => p.Categories.Contains(category, StringComparer.OrdinalIgnoreCase)))
         {
-            var isAdmin = this.IsAdmin();
+            yield return post;
+        }
+    }
 
-            var posts = from p in this.cache
-                        where p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin)
-                        where p.Categories.Contains(category, StringComparer.OrdinalIgnoreCase)
-                        select p;
-
-            return posts.ToAsyncEnumerable();
+    public async IAsyncEnumerable<Post> GetPostsByTag(string tag)
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        public IAsyncEnumerable<Post> GetPostsByTag(string tag)
+        bool isAdmin = IsAdmin();
+
+        foreach (var post in _cache
+                    .Where(p => p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin))
+                    .Where(p => p.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)))
         {
-            var isAdmin = this.IsAdmin();
+            yield return post;
+        }
+    }
 
-            var posts = from p in this.cache
-                        where p.PubDate <= DateTime.UtcNow && (p.IsPublished || isAdmin)
-                        where p.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)
-                        select p;
-
-            return posts.ToAsyncEnumerable();
+    [SuppressMessage(
+        "Globalization",
+        "CA1308:Normalize strings to uppercase",
+        Justification = "Consumer preference.")]
+    public virtual async IAsyncEnumerable<string> GetTags()
+    {
+        if (!_initialized)
+        {
+            await InitializeAsync();
         }
 
-        [SuppressMessage(
-            "Usage",
-            "SecurityIntelliSenseCS:MS Security rules violation",
-            Justification = "Caller must review file name.")]
-        public async Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null)
+        bool isAdmin = IsAdmin();
+
+        foreach (string? tag in _cache
+            .Where(p => p.IsPublished || isAdmin)
+            .SelectMany(post => post.Tags)
+            .Select(tag => tag.ToLowerInvariant())
+            .Distinct())
         {
-            if (bytes is null)
+            yield return tag;
+        }
+    }
+
+    [SuppressMessage(
+        "Usage",
+        "SecurityIntelliSenseCS:MS Security rules violation",
+        Justification = "Caller must review file name.")]
+    public async Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        if (!_initialized)
+        {
+            await InitializeAsync();
+        }
+
+        suffix = CleanFromInvalidChars(suffix ?? DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture));
+
+        string ext = Path.GetExtension(fileName);
+        string name = CleanFromInvalidChars(Path.GetFileNameWithoutExtension(fileName));
+
+        string fileNameWithSuffix = $"{name}_{suffix}{ext}";
+
+        string absolute = Path.Combine(Folder, FILES, fileNameWithSuffix);
+        string dir = Path.GetDirectoryName(absolute)!;
+
+        _ = Directory.CreateDirectory(dir);
+        using FileStream writer = new(absolute, FileMode.CreateNew);
+        await writer.WriteAsync(bytes).ConfigureAwait(false);
+
+        return $"/{POSTS}/{FILES}/{fileNameWithSuffix}";
+    }
+
+    public async Task SavePost(Post post)
+    {
+        ArgumentNullException.ThrowIfNull(post);
+
+        if (!_initialized)
+        {
+            await InitializeAsync();
+        }
+
+        string filePath = GetFilePath(post);
+        post.LastModified = DateTime.UtcNow;
+
+        XDocument doc = new(
+                        new XElement("post",
+                            new XElement("title", post.Title),
+                            new XElement("slug", post.Slug),
+                            new XElement("pubDate", FormatDateTime(post.PubDate)),
+                            new XElement("lastModified", FormatDateTime(post.LastModified)),
+                            new XElement("excerpt", post.Excerpt),
+                            new XElement("content", post.Content),
+                            new XElement("ispublished", post.IsPublished),
+                            new XElement("categories", string.Empty),
+                            new XElement("tags", string.Empty),
+                            new XElement("comments", string.Empty)
+                        ));
+
+        var categories = doc.XPathSelectElement("post/categories")!;
+        foreach (string category in post.Categories)
+        {
+            categories.Add(new XElement("category", category));
+        }
+
+        var tags = doc.XPathSelectElement("post/tags")!;
+        foreach (string tag in post.Tags)
+        {
+            tags.Add(new XElement("tag", tag));
+        }
+
+        var comments = doc.XPathSelectElement("post/comments")!;
+        foreach (var comment in post.Comments)
+        {
+            comments.Add(
+                new XElement("comment",
+                    new XElement("author", comment.Author),
+                    new XElement("email", comment.Email),
+                    new XElement("date", FormatDateTime(comment.PubDate)),
+                    new XElement("content", comment.Content),
+                    new XAttribute("isAdmin", comment.IsAdmin),
+                    new XAttribute("id", comment.ID)
+                ));
+        }
+
+        using FileStream fs = new(filePath, FileMode.Create, FileAccess.ReadWrite);
+        await doc.SaveAsync(fs, SaveOptions.None, CancellationToken.None).ConfigureAwait(false);
+
+        if (!_cache.Contains(post))
+        {
+            _cache.Add(post);
+            SortCache();
+        }
+    }
+
+    protected bool IsAdmin() => contextAccessor.HttpContext?.User?.Identity!.IsAuthenticated == true;
+
+    protected void SortCache() => _cache.Sort((p1, p2) => p2.PubDate.CompareTo(p1.PubDate));
+
+    private static string CleanFromInvalidChars(string input)
+    {
+        // TODO: what we are doing here if we switch the blog from windows to unix system or vice
+        // versa? we should remove all invalid chars for both systems
+
+        string regexSearch = Regex.Escape(new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars()));
+        Regex r = new($"[{regexSearch}]");
+        return r.Replace(input, string.Empty);
+    }
+
+    private static string FormatDateTime(DateTime dateTime)
+    {
+        const string utc = "yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'";
+
+        return dateTime.Kind == DateTimeKind.Utc
+            ? dateTime.ToString(utc, CultureInfo.InvariantCulture)
+            : dateTime.ToUniversalTime().ToString(utc, CultureInfo.InvariantCulture);
+    }
+
+    private static void LoadCategories(Post post, XElement doc)
+    {
+        var categories = doc.Element("categories");
+        if (categories is null)
+        {
+            return;
+        }
+
+        post.Categories.Clear();
+        foreach (string? category in categories.Elements("category").Select(node => node.Value))
+        {
+            post.Categories.Add(category);
+        }
+    }
+
+    private static void LoadComments(Post post, XElement doc)
+    {
+        var comments = doc.Element("comments");
+
+        if (comments is null)
+        {
+            return;
+        }
+
+        foreach (var node in comments.Elements("comment"))
+        {
+            Comment comment = new()
             {
-                throw new ArgumentNullException(nameof(bytes));
-            }
+                ID = ReadAttribute(node, "id"),
+                Author = ReadValue(node, "author"),
+                Email = ReadValue(node, "email"),
+                IsAdmin = bool.Parse(ReadAttribute(node, "isAdmin", "false")),
+                Content = ReadValue(node, "content"),
+                PubDate = DateTime.Parse(ReadValue(node, "date", "2000-01-01"), CultureInfo.InvariantCulture),
+            };
 
-            suffix = CleanFromInvalidChars(suffix ?? DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture));
+            post.Comments.Add(comment);
+        }
+    }
 
-            var ext = Path.GetExtension(fileName);
-            var name = CleanFromInvalidChars(Path.GetFileNameWithoutExtension(fileName));
-
-            var fileNameWithSuffix = $"{name}_{suffix}{ext}";
-
-            var absolute = Path.Combine(this.folder, FILES, fileNameWithSuffix);
-            var dir = Path.GetDirectoryName(absolute);
-
-            Directory.CreateDirectory(dir);
-            using (var writer = new FileStream(absolute, FileMode.CreateNew))
-            {
-                await writer.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false);
-            }
-
-            return $"/{POSTS}/{FILES}/{fileNameWithSuffix}";
+    private static void LoadTags(Post post, XElement doc)
+    {
+        var tags = doc.Element("tags");
+        if (tags is null)
+        {
+            return;
         }
 
-        public async Task SavePost(Post post)
+        post.Tags.Clear();
+        foreach (string? tag in tags.Elements("tag").Select(node => node.Value))
         {
-            if (post is null)
-            {
-                throw new ArgumentNullException(nameof(post));
-            }
+            post.Tags.Add(tag);
+        }
+    }
 
-            var filePath = this.GetFilePath(post);
-            post.LastModified = DateTime.UtcNow;
+    private static string ReadAttribute(XElement element, XName name, string defaultValue = "") =>
+        element.Attribute(name) is null ? defaultValue : element.Attribute(name)?.Value ?? defaultValue;
 
-            var doc = new XDocument(
-                            new XElement("post",
-                                new XElement("title", post.Title),
-                                new XElement("slug", post.Slug),
-                                new XElement("pubDate", FormatDateTime(post.PubDate)),
-                                new XElement("lastModified", FormatDateTime(post.LastModified)),
-                                new XElement("excerpt", post.Excerpt),
-                                new XElement("content", post.Content),
-                                new XElement("ispublished", post.IsPublished),
-                                new XElement("categories", string.Empty),
-                                new XElement("tags", string.Empty),
-                                new XElement("comments", string.Empty)
-                            ));
+    private static string ReadValue(XElement doc, XName name, string defaultValue = "") =>
+        doc.Element(name) is null ? defaultValue : doc.Element(name)?.Value ?? defaultValue;
 
-            var categories = doc.XPathSelectElement("post/categories");
-            foreach (var category in post.Categories)
-            {
-                categories.Add(new XElement("category", category));
-            }
+    [SuppressMessage(
+        "Usage",
+        "SecurityIntelliSenseCS:MS Security rules violation",
+        Justification = "Path not derived from user input.")]
+    private string GetFilePath(Post post) => Path.Combine(Folder, $"{post.ID}.xml");
 
-            var tags = doc.XPathSelectElement("post/tags");
-            foreach (var tag in post.Tags)
-            {
-                tags.Add(new XElement("tag", tag));
-            }
+    private async Task InitializeAsync()
+    {
+        await LoadPosts();
+        SortCache();
+        _initialized = true;
+    }
 
-            var comments = doc.XPathSelectElement("post/comments");
-            foreach (var comment in post.Comments)
-            {
-                comments.Add(
-                    new XElement("comment",
-                        new XElement("author", comment.Author),
-                        new XElement("email", comment.Email),
-                        new XElement("date", FormatDateTime(comment.PubDate)),
-                        new XElement("content", comment.Content),
-                        new XAttribute("isAdmin", comment.IsAdmin),
-                        new XAttribute("id", comment.ID)
-                    ));
-            }
-
-            using (var fs = new FileStream(filePath, FileMode.Create, FileAccess.ReadWrite))
-            {
-                await doc.SaveAsync(fs, SaveOptions.None, CancellationToken.None).ConfigureAwait(false);
-            }
-
-            if (!this.cache.Contains(post))
-            {
-                this.cache.Add(post);
-                this.SortCache();
-            }
+    [SuppressMessage(
+        "Globalization",
+        "CA1308:Normalize strings to uppercase",
+        Justification = "The slug should be lower case.")]
+    private async Task LoadPosts()
+    {
+        if (!Directory.Exists(Folder))
+        {
+            _ = Directory.CreateDirectory(Folder);
         }
 
-        protected bool IsAdmin() => this.contextAccessor.HttpContext?.User?.Identity.IsAuthenticated == true;
+        var filePaths = Directory.EnumerateFiles(Folder, "*.xml", SearchOption.TopDirectoryOnly);
+        int degreeOfParallelism = Environment.ProcessorCount;
 
-        protected void SortCache() => this.cache.Sort((p1, p2) => p2.PubDate.CompareTo(p1.PubDate));
-
-        private static string CleanFromInvalidChars(string input)
+        static async ValueTask<Post> LoadPostFromFile(string filePath, CancellationToken cancellationToken)
         {
-            // ToDo: what we are doing here if we switch the blog from windows to unix system or
-            // vice versa? we should remove all invalid chars for both systems
-
-            var regexSearch = Regex.Escape(new string(Path.GetInvalidFileNameChars()) + new string(Path.GetInvalidPathChars()));
-            var r = new Regex($"[{regexSearch}]");
-            return r.Replace(input, string.Empty);
+            FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var doc = await XElement.LoadAsync(fileStream, LoadOptions.None, CancellationToken.None);
+            string id = Path.GetFileNameWithoutExtension(filePath);
+            Post post = new()
+            {
+                ID = Path.GetFileNameWithoutExtension(filePath),
+                Title = ReadValue(doc, "title"),
+                Excerpt = ReadValue(doc, "excerpt"),
+                Content = ReadValue(doc, "content"),
+                Slug = ReadValue(doc, "slug").ToLowerInvariant(),
+                PubDate = DateTime.Parse(ReadValue(doc, "pubDate"), CultureInfo.InvariantCulture),
+                LastModified = DateTime.Parse(
+                    ReadValue(
+                        doc,
+                        "lastModified",
+                        DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)),
+                    CultureInfo.InvariantCulture),
+                IsPublished = bool.Parse(ReadValue(doc, "ispublished", "true")),
+            };
+            LoadCategories(post, doc);
+            LoadTags(post, doc);
+            LoadComments(post, doc);
+            return post;
         }
 
-        private static string FormatDateTime(DateTime dateTime)
+        ;
+        var posts = filePaths
+            .AsParallel()
+            .WithDegreeOfParallelism(degreeOfParallelism)
+            .ToAsyncEnumerable()
+            .Select(LoadPostFromFile);
+
+        await foreach (var post in posts)
         {
-            const string UTC = "yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'fff'Z'";
-
-            return dateTime.Kind == DateTimeKind.Utc
-                ? dateTime.ToString(UTC, CultureInfo.InvariantCulture)
-                : dateTime.ToUniversalTime().ToString(UTC, CultureInfo.InvariantCulture);
-        }
-
-        private static void LoadCategories(Post post, XElement doc)
-        {
-            var categories = doc.Element("categories");
-            if (categories is null)
-            {
-                return;
-            }
-
-            post.Categories.Clear();
-            categories.Elements("category").Select(node => node.Value).ToList().ForEach(post.Categories.Add);
-        }
-
-        private static void LoadTags(Post post, XElement doc)
-        {
-            var tags = doc.Element("tags");
-            if (tags is null)
-            {
-                return;
-            }
-
-            post.Tags.Clear();
-            tags.Elements("tag").Select(node => node.Value).ToList().ForEach(post.Tags.Add);
-        }
-
-        private static void LoadComments(Post post, XElement doc)
-        {
-            var comments = doc.Element("comments");
-
-            if (comments is null)
-            {
-                return;
-            }
-
-            foreach (var node in comments.Elements("comment"))
-            {
-                var comment = new Comment
-                {
-                    ID = ReadAttribute(node, "id"),
-                    Author = ReadValue(node, "author"),
-                    Email = ReadValue(node, "email"),
-                    IsAdmin = bool.Parse(ReadAttribute(node, "isAdmin", "false")),
-                    Content = ReadValue(node, "content"),
-                    PubDate = DateTime.Parse(ReadValue(node, "date", "2000-01-01"),
-                        CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal),
-                };
-
-                post.Comments.Add(comment);
-            }
-        }
-
-        private static string ReadAttribute(XElement element, XName name, string defaultValue = "") =>
-            element.Attribute(name) is null ? defaultValue : element.Attribute(name)?.Value ?? defaultValue;
-
-        private static string ReadValue(XElement doc, XName name, string defaultValue = "") =>
-            doc.Element(name) is null ? defaultValue : doc.Element(name)?.Value ?? defaultValue;
-
-        [SuppressMessage(
-            "Usage",
-            "SecurityIntelliSenseCS:MS Security rules violation",
-            Justification = "Path not derived from user input.")]
-        private string GetFilePath(Post post) => Path.Combine(this.folder, $"{post.ID}.xml");
-
-        private void Initialize()
-        {
-            this.LoadPosts();
-            this.SortCache();
-        }
-
-        [SuppressMessage(
-            "Globalization",
-            "CA1308:Normalize strings to uppercase",
-            Justification = "The slug should be lower case.")]
-        private void LoadPosts()
-        {
-            if (!Directory.Exists(this.folder))
-            {
-                Directory.CreateDirectory(this.folder);
-            }
-
-            // Can this be done in parallel to speed it up?
-            foreach (var file in Directory.EnumerateFiles(this.folder, "*.xml", SearchOption.TopDirectoryOnly))
-            {
-                var doc = XElement.Load(file);
-
-                var post = new Post
-                {
-                    ID = Path.GetFileNameWithoutExtension(file),
-                    Title = ReadValue(doc, "title"),
-                    Excerpt = ReadValue(doc, "excerpt"),
-                    Content = ReadValue(doc, "content"),
-                    Slug = ReadValue(doc, "slug").ToLowerInvariant(),
-                    PubDate = DateTime.Parse(ReadValue(doc, "pubDate"), CultureInfo.InvariantCulture,
-                        DateTimeStyles.AdjustToUniversal),
-                    LastModified = DateTime.Parse(
-                        ReadValue(
-                            doc,
-                            "lastModified",
-                            DateTime.UtcNow.ToString(CultureInfo.InvariantCulture)),
-                        CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal),
-                    IsPublished = bool.Parse(ReadValue(doc, "ispublished", "true")),
-                };
-
-                LoadCategories(post, doc);
-                LoadTags(post, doc);
-                LoadComments(post, doc);
-                this.cache.Add(post);
-            }
+            _cache.Add(post);
         }
     }
 }

@@ -1,6 +1,6 @@
-# Blog engine for ASP.NET Core 7
+# Blog engine for ASP.NET Core 10
 
-:warning: **This is forked repository of madskristensen/Miniblog.Core** :warning:
+A full-featured yet simple blog engine built on ASP.NET Core 10.
 
-Things changed in comparison to original repository:
- - EntityFramework support
+I've just added
+ - EntityFramework support (with postgres provider)
