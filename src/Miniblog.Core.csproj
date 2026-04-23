@@ -12,6 +12,7 @@
     <RepositoryUrl>https://github.com/madskristensen/Miniblog.Core.git</RepositoryUrl>
     <TargetFramework>net10.0</TargetFramework>
     <TreatWarningsAsErrors>True</TreatWarningsAsErrors>
+    <DefaultItemExcludes>$(DefaultItemExcludes);aspire\**\*</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Azure.ImageOptimizer" />

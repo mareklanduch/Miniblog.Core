@@ -12,233 +12,158 @@ namespace Miniblog.Core.Services
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
 
     public class DbBlogService : IBlogService
     {
-        private readonly IHttpContextAccessor contextAccessor;
-        private readonly BlogContext blogContext;
+        private readonly IHttpContextAccessor _contextAccessor;
+        private readonly BlogContext _blogContext;
 
-        public DbBlogService(
-            IHttpContextAccessor contextAccessor,
-            BlogContext blogContext)
+        public DbBlogService(IHttpContextAccessor contextAccessor, BlogContext blogContext)
         {
-            this.contextAccessor = contextAccessor;
-            this.blogContext = blogContext;
+            _contextAccessor = contextAccessor;
+            _blogContext = blogContext;
         }
 
         public async Task DeletePost(Post post)
         {
-            if (post is null)
-            {
-                throw new ArgumentNullException(nameof(post));
-            }
+            ArgumentNullException.ThrowIfNull(post);
 
             _ = Guid.TryParse(post.ID, out var postId);
-
-            var postEntity = await this.blogContext.Posts.FindAsync(postId);
-            if (postEntity != null)
+            var entity = await _blogContext.Posts.FindAsync(postId);
+            if (entity is not null)
             {
-                this.blogContext.Remove(postEntity);
-                await this.blogContext.SaveChangesAsync();
+                _blogContext.Remove(entity);
+                await _blogContext.SaveChangesAsync();
             }
         }
 
         public IAsyncEnumerable<string> GetCategories()
         {
-            var isAdmin = this.IsAdmin();
-
-            return this.blogContext
-                .Categories
-                .Where(p => p.Post.IsPublished || isAdmin)
-                .Select(cat => cat.Name!.ToLowerInvariant())
+            var isAdmin = IsAdmin();
+            return _blogContext.Categories
+                .Where(c => c.Post.IsPublished || isAdmin)
+                .Select(c => c.Name!.ToLower())
                 .Distinct()
-                .ToAsyncEnumerable();
+                .AsAsyncEnumerable();
         }
 
         public IAsyncEnumerable<string> GetTags()
         {
-            var isAdmin = this.IsAdmin();
-
-            return this.blogContext
-                .Tags
-                .Where(p => p.Post.IsPublished || isAdmin)
-                .Select(tag => tag.Name!.ToLowerInvariant())
+            var isAdmin = IsAdmin();
+            return _blogContext.Tags
+                .Where(t => t.Post.IsPublished || isAdmin)
+                .Select(t => t.Name!.ToLower())
                 .Distinct()
-                .ToAsyncEnumerable();
+                .AsAsyncEnumerable();
         }
 
-        public Task<Post?> GetPostById(string id)
+        public async Task<Post?> GetPostById(string id)
         {
-            var isAdmin = this.IsAdmin();
-
             _ = Guid.TryParse(id, out var postId);
-            var post = this.blogContext
-                .Posts
-                .Include(nameof(PostDb.Comments))
-                .Include(nameof(PostDb.Categories))
-                .Include(nameof(PostDb.Tags))
-                .FirstOrDefault(p =>
-                p.ID == postId
-                && ((p.PubDate < DateTime.UtcNow && p.IsPublished)
-                    || isAdmin));
-
-            return Task.FromResult<Post?>(MapEntityToPost(post));
+            var post = await PostsWithIncludes()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p =>
+                    p.ID == postId
+                    && ((p.PubDate < DateTime.UtcNow && p.IsPublished) || IsAdmin()));
+            return MapEntityToPost(post);
         }
 
-        public Task<Post?> GetPostBySlug(string slug)
+        public async Task<Post?> GetPostBySlug(string slug)
         {
-            var isAdmin = this.IsAdmin();
             var decodedSlug = System.Net.WebUtility.UrlDecode(slug).ToLower();
-            var post = this.blogContext
-                .Posts
-                .Include(nameof(PostDb.Comments))
-                .Include(nameof(PostDb.Categories))
-                .Include(nameof(PostDb.Tags))
-                .FirstOrDefault(p =>
-                p.Slug!.ToLower().Equals(decodedSlug)
-                && ((p.PubDate < DateTime.UtcNow && p.IsPublished)
-                    || isAdmin));
-
-            return Task.FromResult<Post?>(MapEntityToPost(post));
+            var post = await PostsWithIncludes()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p =>
+                    p.Slug!.ToLower() == decodedSlug
+                    && ((p.PubDate < DateTime.UtcNow && p.IsPublished) || IsAdmin()));
+            return MapEntityToPost(post);
         }
 
         public IAsyncEnumerable<Post> GetPosts()
         {
-            var isAdmin = this.IsAdmin();
-
-            return this.blogContext
-                .Posts
-                .Include(nameof(PostDb.Comments))
-                .Include(nameof(PostDb.Categories))
-                .Include(nameof(PostDb.Tags))
-                .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
-                            || isAdmin)
-                .Select(p => MapEntityToPost(p)!)
-                .ToAsyncEnumerable()
-                .OrderByDescending(p => p.PubDate);
+            return VisiblePosts(IsAdmin())
+                .OrderByDescending(p => p.PubDate)
+                .AsAsyncEnumerable()
+                .Select(p => MapEntityToPost(p)!);
         }
 
         public IAsyncEnumerable<Post> GetPosts(int count, int skip = 0)
         {
-            var isAdmin = this.IsAdmin();
-
-            return this.blogContext
-                .Posts
-                .Include(nameof(PostDb.Comments))
-                .Include(nameof(PostDb.Categories))
-                .Include(nameof(PostDb.Tags))
-                .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished)
-                            || isAdmin)
+            return VisiblePosts(IsAdmin())
                 .OrderByDescending(p => p.PubDate)
                 .Skip(skip)
                 .Take(count)
-                .Select(p => MapEntityToPost(p)!)
-                .ToAsyncEnumerable();
+                .AsAsyncEnumerable()
+                .Select(p => MapEntityToPost(p)!);
         }
 
         public IAsyncEnumerable<Post> GetPostsByCategory(string category)
         {
-            var isAdmin = this.IsAdmin();
-
-            var posts = this.blogContext
-                .Categories
-                .Include(nameof(CategoryDb.Post))
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Comments)}")
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Categories)}")
-                .Include($"{nameof(CategoryDb.Post)}.{nameof(PostDb.Tags)}")
-                .Where(c =>
-                c.Name!.ToLower().Equals(category.ToLower())
-                && ((c.Post.PubDate < DateTime.UtcNow && c.Post.IsPublished)
-                    || isAdmin))
-                .Select(c => MapEntityToPost(c.Post)!).ToList()
-                .OrderByDescending(p => p.PubDate);
-
-            return posts.ToAsyncEnumerable();
+            return VisiblePosts(IsAdmin())
+                .Where(p => p.Categories.Any(c => c.Name!.ToLower() == category.ToLower()))
+                .OrderByDescending(p => p.PubDate)
+                .AsAsyncEnumerable()
+                .Select(p => MapEntityToPost(p)!);
         }
 
         public IAsyncEnumerable<Post> GetPostsByTag(string tag)
         {
-            var isAdmin = this.IsAdmin();
-
-            var posts = this.blogContext
-                .Tags
-                .Include(nameof(TagDb.Post))
-                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Comments)}")
-                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Categories)}")
-                .Include($"{nameof(TagDb.Post)}.{nameof(PostDb.Tags)}")
-                .Where(t =>
-                t.Name!.ToLower().Equals(tag.ToLower())
-                && ((t.Post.PubDate < DateTime.UtcNow && t.Post.IsPublished)
-                    || isAdmin))
-                .Select(t => MapEntityToPost(t.Post)!).ToList()
-                .OrderByDescending(p => p.PubDate);
-
-
-            return posts.ToAsyncEnumerable();
+            return VisiblePosts(IsAdmin())
+                .Where(p => p.Tags.Any(t => t.Name!.ToLower() == tag.ToLower()))
+                .OrderByDescending(p => p.PubDate)
+                .AsAsyncEnumerable()
+                .Select(p => MapEntityToPost(p)!);
         }
 
         public async Task<string> SaveFile(byte[] bytes, string fileName, string? suffix = null)
         {
-            if (bytes is null)
-            {
-                throw new ArgumentNullException(nameof(bytes));
-            }
+            ArgumentNullException.ThrowIfNull(bytes);
 
             suffix ??= DateTime.UtcNow.Ticks.ToString(CultureInfo.InvariantCulture);
-
             var ext = Path.GetExtension(fileName);
             var name = Path.GetFileNameWithoutExtension(fileName);
-
             var fileNameWithSuffix = $"{name}_{suffix}{ext}";
 
-            await this.blogContext.Files.AddAsync(new FileDb
-            {
-                FileName = fileNameWithSuffix,
-                Content = bytes
-            });
-
-            await this.blogContext.SaveChangesAsync();
+            await _blogContext.Files.AddAsync(new FileDb { FileName = fileNameWithSuffix, Content = bytes });
+            await _blogContext.SaveChangesAsync();
 
             return $"/file/{fileNameWithSuffix}";
         }
 
         public async Task SavePost(Post post)
         {
-            if (post is null)
-            {
-                throw new ArgumentNullException(nameof(post));
-            }
+            ArgumentNullException.ThrowIfNull(post);
 
             _ = Guid.TryParse(post.ID, out var postId);
-
-
-            var entity = this.blogContext
-                .Posts
-                .Include(nameof(PostDb.Comments))
-                .Include(nameof(PostDb.Categories))
-                .Include(nameof(PostDb.Tags))
-                .FirstOrDefault(p => p.ID == postId) ?? new PostDb();
+            var entity = await PostsWithIncludes()
+                .FirstOrDefaultAsync(p => p.ID == postId) ?? new PostDb();
 
             post.LastModified = DateTime.UtcNow;
-
             BindPostToEntity(post, entity);
 
             if (entity.ID == Guid.Empty)
-            {
-                _ = await this.blogContext.Posts.AddAsync(entity);
-            }
+                _ = await _blogContext.Posts.AddAsync(entity);
             else
-            {
-                this.blogContext.Posts.Update(entity);
-            }
-            await this.blogContext.SaveChangesAsync();
+                _blogContext.Posts.Update(entity);
+
+            await _blogContext.SaveChangesAsync();
         }
 
-        private bool IsAdmin() => this.contextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true;
+        private bool IsAdmin() => _contextAccessor.HttpContext?.User?.Identity?.IsAuthenticated == true;
 
-        private void BindPostToEntity(Post post, PostDb entity)
+        private IQueryable<PostDb> PostsWithIncludes() =>
+            _blogContext.Posts
+                .Include(p => p.Comments)
+                .Include(p => p.Categories)
+                .Include(p => p.Tags);
+
+        private IQueryable<PostDb> VisiblePosts(bool isAdmin) =>
+            PostsWithIncludes()
+                .AsNoTracking()
+                .Where(p => (p.PubDate < DateTime.UtcNow && p.IsPublished) || isAdmin);
+
+        private static void BindPostToEntity(Post post, PostDb entity)
         {
             entity.Content = post.Content;
             entity.Excerpt = post.Excerpt;
@@ -248,48 +173,49 @@ namespace Miniblog.Core.Services
             entity.Slug = post.Slug;
             entity.Title = post.Title;
 
-            entity.Comments = entity.Comments ?? new List<CommentDb>();
-            entity.Tags = entity.Tags ?? new List<TagDb>();
-            entity.Categories = entity.Categories ?? new List<CategoryDb>();
-
-            var commentsPosted = post.Comments.Select(t =>
+            var commentsPosted = post.Comments.Select(c =>
             {
-                _ = Guid.TryParse(t.ID, out var commentId);
+                _ = Guid.TryParse(c.ID, out var commentId);
                 return new CommentDb
                 {
                     ID = commentId,
-                    Author = t.Author,
-                    Email = t.Email,
-                    Content = t.Content,
-                    IsAdmin = t.IsAdmin,
-                    PubDate = t.PubDate
+                    Author = c.Author,
+                    Email = c.Email,
+                    Content = c.Content,
+                    IsAdmin = c.IsAdmin,
+                    PubDate = c.PubDate
                 };
             }).ToList();
 
-            var newComments = commentsPosted.ExceptBy(entity.Comments.Select(t => t.ID), t => t.ID).ToList();
+            var newComments = commentsPosted
+                .ExceptBy(entity.Comments.Select(c => c.ID), c => c.ID)
+                .ToList();
             newComments.ForEach(c => c.ID = Guid.Empty);
-            newComments.AddRange(entity.Comments.IntersectBy(post.Comments.Select(c=>c.ID.ToLower()).ToList(), t => t.ID.ToString().ToLower()));
+            newComments.AddRange(entity.Comments.IntersectBy(
+                post.Comments.Select(c => c.ID.ToLower()),
+                c => c.ID.ToString().ToLower()));
             entity.Comments = newComments;
 
-            var tagsPosted = post.Tags.Select(t => new TagDb { Name = t }).ToList();
-            var newTags = tagsPosted.ExceptBy(entity.Tags.Select(t => t.Name), t => t.Name).ToList();
-            newTags.AddRange(entity.Tags.IntersectBy(post.Tags.ToList(), t => t.Name));
+            var newTags = post.Tags
+                .Select(t => new TagDb { Name = t })
+                .ExceptBy(entity.Tags.Select(t => t.Name), t => t.Name)
+                .ToList();
+            newTags.AddRange(entity.Tags.IntersectBy(post.Tags, t => t.Name));
             entity.Tags = newTags;
 
-            var catPosted = post.Categories.Select(c => new CategoryDb { Name = c }).ToList();
-            var newCat = catPosted.ExceptBy(entity.Categories.Select(c => c.Name), c => c.Name).ToList();
-            newCat.AddRange(entity.Categories.IntersectBy(post.Categories.ToList(), c => c.Name));
-            entity.Categories = newCat;
+            var newCategories = post.Categories
+                .Select(c => new CategoryDb { Name = c })
+                .ExceptBy(entity.Categories.Select(c => c.Name), c => c.Name)
+                .ToList();
+            newCategories.AddRange(entity.Categories.IntersectBy(post.Categories, c => c.Name));
+            entity.Categories = newCategories;
         }
 
         private static Post? MapEntityToPost(PostDb? post)
         {
-            if (post is null)
-            {
-                return null;
-            }
+            if (post is null) return null;
 
-            var postDto = new Post
+            var dto = new Post
             {
                 ID = post.ID.ToString(),
                 Content = post.Content ?? string.Empty,
@@ -303,28 +229,24 @@ namespace Miniblog.Core.Services
 
             foreach (var comment in post.Comments)
             {
-                postDto.Comments.Add(new Comment
+                dto.Comments.Add(new Comment
                 {
                     ID = comment.ID.ToString(),
                     Author = comment.Author ?? string.Empty,
                     Content = comment.Content ?? string.Empty,
                     Email = comment.Email ?? string.Empty,
                     IsAdmin = comment.IsAdmin,
-                    PubDate= comment.PubDate
+                    PubDate = comment.PubDate
                 });
             }
 
             foreach (var tag in post.Tags)
-            {
-                postDto.Tags.Add(tag.Name!);
-            }
+                dto.Tags.Add(tag.Name!);
 
             foreach (var cat in post.Categories)
-            {
-                postDto.Categories.Add(cat.Name!);
-            }
+                dto.Categories.Add(cat.Name!);
 
-            return postDto;
+            return dto;
         }
     }
 }
