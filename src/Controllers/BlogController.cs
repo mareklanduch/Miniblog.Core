@@ -226,6 +226,8 @@ public partial class BlogController(IBlogService blog, IOptionsSnapshot<BlogSett
 
     [Route("/blog/{slug?}")]
     [HttpPost, Authorize, AutoValidateAntiforgeryToken]
+    [RequestFormLimits(ValueLengthLimit = 10_485_760, MultipartBodyLengthLimit = 10_485_760)]
+    [RequestSizeLimit(10_485_760)]
     [SuppressMessage("Style", "IDE0060:Remove unused parameter", Justification = "Part of public API that already shipped.")]
     public async Task<IActionResult> UpdatePost(string? slug, Post post)
     {

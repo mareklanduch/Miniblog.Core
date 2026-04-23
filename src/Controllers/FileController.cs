@@ -1,10 +1,12 @@
 namespace Miniblog.Core.Controllers
 {
     using Microsoft.AspNetCore.Mvc;
+    using Microsoft.EntityFrameworkCore;
 
     using Miniblog.Core.Database;
 
-    using System.Linq;
+    using System.IO;
+    using System.Threading.Tasks;
 
     public class FileController : Controller
     {
@@ -16,15 +18,25 @@ namespace Miniblog.Core.Controllers
         }
 
         [Route("/file/{fileName}")]
-        public IActionResult GetFile(string fileName)
+        public async Task<IActionResult> GetFile(string fileName)
         {
-            var image = this.blogContext.Files.FirstOrDefault(f=>f.FileName == fileName)?.Content;
-            if (image == null)
-            {
-                return NotFound();
-            }
+            var file = await blogContext.Files
+                .AsNoTracking()
+                .FirstOrDefaultAsync(f => f.FileName == fileName);
 
-            return File(image, "image/png");
+            if (file is null)
+                return NotFound();
+
+            var contentType = Path.GetExtension(fileName).ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif"            => "image/gif",
+                ".webp"           => "image/webp",
+                ".svg"            => "image/svg+xml",
+                _                 => "image/png"
+            };
+
+            return File(file.Content, contentType);
         }
     }
 }

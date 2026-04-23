@@ -125,7 +125,7 @@ namespace Miniblog.Core.Services
             var name = Path.GetFileNameWithoutExtension(fileName);
             var fileNameWithSuffix = $"{name}_{suffix}{ext}";
 
-            await _blogContext.Files.AddAsync(new FileDb { FileName = fileNameWithSuffix, Content = bytes });
+            _blogContext.Files.Add(new FileDb { FileName = fileNameWithSuffix, Content = bytes });
             await _blogContext.SaveChangesAsync();
 
             return $"/file/{fileNameWithSuffix}";
