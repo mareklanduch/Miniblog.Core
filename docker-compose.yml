@@ -1,0 +1,16 @@
+services:
+  miniblog:
+    image: ghcr.io/${GITHUB_USERNAME}/miniblog:latest
+    restart: always
+    ports:
+      - "5000:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__BlogContext: Host=postgres;Database=miniblog;Username=postgres;Password=${DB_PASSWORD}
+    networks:
+      - default
+      - infra
+
+networks:
+  infra:
+    external: true
