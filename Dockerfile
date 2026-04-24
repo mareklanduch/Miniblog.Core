@@ -1,5 +1,6 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
+COPY Directory.Packages.props /src/
 COPY src/ .
 RUN dotnet publish Miniblog.Core.csproj -c Release -o /app/publish
 
