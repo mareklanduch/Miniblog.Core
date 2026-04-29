@@ -2,7 +2,8 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [sharpapp]
+  workflow_dispatch:
 
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/miniblog
@@ -66,6 +67,6 @@ jobs:
           script: |
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd /opt/miniblog
-            GITHUB_USERNAME=${{ github.repository_owner }} DB_PASSWORD=${{ secrets.DB_PASSWORD }} docker compose pull
-            GITHUB_USERNAME=${{ github.repository_owner }} DB_PASSWORD=${{ secrets.DB_PASSWORD }} docker compose up -d --remove-orphans
+            GITHUB_USERNAME=${{ github.repository_owner }} DB_PASSWORD=${{ secrets.DB_PASSWORD }} BLOG_USERNAME=${{ secrets.BLOG_USERNAME }} BLOG_PASSWORD=${{ secrets.BLOG_PASSWORD }} BLOG_SALT=${{ secrets.BLOG_SALT }} docker compose pull
+            GITHUB_USERNAME=${{ github.repository_owner }} DB_PASSWORD=${{ secrets.DB_PASSWORD }} BLOG_USERNAME=${{ secrets.BLOG_USERNAME }} BLOG_PASSWORD=${{ secrets.BLOG_PASSWORD }} BLOG_SALT=${{ secrets.BLOG_SALT }} docker compose up -d --remove-orphans
             docker image prune -f

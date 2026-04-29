@@ -5,9 +5,10 @@ name: .NET
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "sharpapp" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "sharpapp" ]
+  workflow_dispatch:
 
 jobs:
   build:
