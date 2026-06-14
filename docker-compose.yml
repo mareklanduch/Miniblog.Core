@@ -12,9 +12,3 @@ services:
       user__salt: ${BLOG_SALT}
       forcessl: "false"
       forceWwwPrefix: "false"
-    networks:
-      - coolify
-
-networks:
-  coolify:
-    external: true
