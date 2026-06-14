@@ -1,0 +1,20 @@
+services:
+  miniblog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__BlogContext: Host=postgresql-database-j13b3kz1ar865uoxq7tj9log;Port=5432;Database=miniblog;Username=postgres;Password=${DB_PASSWORD}
+      user__username: ${BLOG_USERNAME}
+      user__password: ${BLOG_PASSWORD}
+      user__salt: ${BLOG_SALT}
+      forcessl: "false"
+      forceWwwPrefix: "false"
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    external: true
